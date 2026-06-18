@@ -1,0 +1,15 @@
+# Node / React
+node_modules/
+.env
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# OS / 에디터
+.DS_Store
+.vscode/
