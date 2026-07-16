@@ -80,4 +80,4 @@ uvicorn main:app --reload
 <br>
 
 ---
-대구대학교 광고홍보학과 졸업작품 2026
+
