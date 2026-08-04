@@ -308,8 +308,8 @@
     // 백엔드에서 번역 결과가 오면 화면에 표시
     ws.onmessage = function(e) {
       var data = JSON.parse(e.data);
-      if (data.status === 'success' && data.translated_text) {
-        showResult(data.translated_text, data.confidence);
+      if (data.status === 'success' && data.text) {
+        showResult(data.text, data.confidence);
       }
     };
 
