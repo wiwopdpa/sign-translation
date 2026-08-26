@@ -1,10 +1,10 @@
-# backend/main.py
 import os
+import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from websocket_manager import manager
-from mock_model import sign_model
+from sign_model import SignLanguageModel
 
 app = FastAPI(
     title="SignBridge Backend API",
@@ -37,22 +37,30 @@ def health_check():
 @app.websocket("/ws/sign")
 async def websocket_sign_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
+    ai_service = SignLanguageModel()
+
     try:
         while True:
             # 1. 프론트엔드가 보낸 데이터 수신
             data = await websocket.receive_json()
             landmarks = data.get("landmarks", [])
 
-            # 2. (Mock) AI 모델 추론
-            result = sign_model.predict(landmarks)
+            # 2. 양손 기준 126개 좌표 확인 후 AI 모델 추론 진행
+            if landmarks and len(landmarks) == 126:
+                result = ai_service.process_frame(landmarks)
 
-            # 3. 번역 결과 반환
-            response = {
-                "status": "success",
-                "translated_text": result["text"],
-                "confidence": result["confidence"]
-            }
-            await manager.send_personal_message(response, websocket)
+                # 3. 30프레임 축적 및 확신도/연속성 조건 충족 시에만 프론트엔드로 결과 전송
+                if result:
+                    response = {
+                        "status": "success",
+                        "translated_text": result["action"],
+                        "confidence": round(result["confidence"], 2)
+                    }
+                    await manager.send_personal_message(json.dumps(response), websocket)
 
     except WebSocketDisconnect:
+        ai_service.reset()
+        manager.disconnect(websocket)
+    except Exception as e:
+        ai_service.reset()
         manager.disconnect(websocket)
