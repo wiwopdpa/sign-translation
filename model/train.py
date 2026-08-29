@@ -1,59 +1,87 @@
-import numpy as np
 import os
+import numpy as np
 from sklearn.model_selection import train_test_split
-import keras
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
-Sequential = keras.models.Sequential
-LSTM = keras.layers.LSTM
-Dense = keras.layers.Dense
+# 현재 위치 기준 경로 설정
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(CURRENT_DIR, 'MP_Data')
+MODEL_SAVE_PATH = os.path.join(CURRENT_DIR, 'my_model.h5')
 
-# 데이터 경로
-DATA_PATH = os.path.join('MP_Data')
+# MP_Data 내부의 모든 단어 폴더 자동 감지 및 정렬
+actions = np.array(sorted([
+    d for d in os.listdir(DATA_PATH)
+    if os.path.isdir(os.path.join(DATA_PATH, d)) and not d.startswith('.')
+]))
 
-# 1. MP_Data 폴더 내 단어들을 알파벳순으로 정렬하여 자동 인식
-actions = np.array(sorted([d for d in os.listdir(DATA_PATH) if os.path.isdir(os.path.join(DATA_PATH, d))]))
-print(f"학습 대상 단어 ({len(actions)}개): {actions}")
+print(f"학습 대상 단어 목록 ({len(actions)}개):", actions)
 
-label_map = {label: idx for idx, label in enumerate(actions)}
+label_map = {label: num for num, label in enumerate(actions)}
 
 sequences, labels = [], []
 
-# 2. 모든 시퀀스 데이터 로드
+# 데이터셋 로드
 for action in actions:
     action_path = os.path.join(DATA_PATH, action)
-    sequences_in_action = [s for s in os.listdir(action_path) if os.path.isdir(os.path.join(action_path, s))]
+    sequence_folders = [f for f in os.listdir(action_path) if os.path.isdir(os.path.join(action_path, f))]
     
-    print(f" -> '{action}': {len(sequences_in_action)}개 시퀀스 불러오는 중...")
-    for sequence in sequences_in_action:
+    for sequence in sequence_folders:
         window = []
-        try:
-            for frame_num in range(30):
-                res = np.load(os.path.join(action_path, sequence, f"{frame_num}.npy"))
-                window.append(res)
-            sequences.append(window)
-            labels.append(label_map[action])
-        except Exception:
+        seq_path = os.path.join(action_path, sequence)
+        frame_files = [f for f in os.listdir(seq_path) if f.endswith('.npy')]
+        
+        # 30프레임이 채워진 시퀀스만 로드
+        if len(frame_files) < 30:
             continue
+            
+        for frame_num in range(30):
+            res = np.load(os.path.join(seq_path, f"{frame_num}.npy"))
+            window.append(res)
+            
+        sequences.append(window)
+        labels.append(label_map[action])
 
 X = np.array(sequences)
-y = keras.utils.to_categorical(labels).astype(int)
+y = to_categorical(labels, num_classes=len(actions)).astype(int)
 
-# 데이터 분할 (90% 학습, 10% 검증)
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+# 데이터 수가 적은 경우(클래스당 1개 등) stratify 없이 안전하게 분할
+if len(X) < 40:
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+else:
+    try:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42, stratify=y)
+    except Exception:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
 
-# 3. 모델 구성
-model = Sequential()
-model.add(LSTM(64, return_sequences=True, activation='relu', input_shape=(30, X.shape[2])))
-model.add(LSTM(128, return_sequences=False, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(32, activation='relu'))
-model.add(Dense(actions.shape[0], activation='softmax'))
+print(f"데이터셋 크기 - Train: {X_train.shape}, Test: {X_test.shape}")
 
-# 4. 모델 컴파일 및 학습
+# LSTM 모델 구성 (입력: 30프레임 x 126차원)
+model = Sequential([
+    LSTM(64, return_sequences=True, activation='relu', input_shape=(30, 126)),
+    Dropout(0.2),
+    LSTM(128, return_sequences=True, activation='relu'),
+    Dropout(0.2),
+    LSTM(64, return_sequences=False, activation='relu'),
+    Dense(64, activation='relu'),
+    Dense(32, activation='relu'),
+    Dense(len(actions), activation='softmax')
+])
+
 model.compile(optimizer='Adam', loss='categorical_crossentropy', metrics=['categorical_accuracy'])
 
-model.fit(X_train, y_train, epochs=200, batch_size=32)
+checkpoint = ModelCheckpoint(MODEL_SAVE_PATH, monitor='loss', save_best_only=True, mode='min')
 
-# 5. 모델 저장
-model.save('my_model.h5')
-print("\n🎉 my_model.h5 저장이 완료되었습니다!")
+print("\n🚀 모델 학습 시작...")
+model.fit(
+    X_train, y_train,
+    epochs=100,
+    batch_size=16,
+    callbacks=[checkpoint]
+)
+
+# 최종 모델 저장 보장
+model.save(MODEL_SAVE_PATH)
+print(f"\n🎉 모델 학습 완료! 파일 저장 위치: {MODEL_SAVE_PATH}")
