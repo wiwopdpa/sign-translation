@@ -1,492 +1,546 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SignBridge — 실시간 수어 번역기</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignBridge - 실시간 양방향 수어 번역 시스템</title>
+    <!-- MediaPipe & Camera 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <!-- Pretendard 폰트 -->
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: rgba(22, 27, 34, 0.75);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --accent-blue: #2f81f7;
+            --accent-green: #2ea043;
+            --accent-purple: #8957e5;
+            --text-main: #f0f6fc;
+            --text-sub: #8b949e;
+        }
 
-  <!-- MediaPipe Hands -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Pretendard', sans-serif;
+        }
 
-  <style>
-    :root {
-      --bg: #0D0F18;
-      --surface: #151824;
-      --surface2: #1C2030;
-      --line: rgba(255,255,255,0.08);
-      --text: #EDEAF4;
-      --sub: #8B90A8;
-      --accent: #7B8FFF;
-      --live: #52C9A0;
-      --danger: #E06060;
-    }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
-    }
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(47, 129, 247, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(137, 87, 229, 0.12) 0px, transparent 50%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px 20px;
+        }
 
-    /* 화면 크기 대폭 확장 (최대 1100px) */
-    .app { width: 100%; max-width: 1100px; }
+        header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
 
-    .header {
-      display: flex; align-items: center;
-      justify-content: space-between;
-      margin-bottom: 1.5rem;
-    }
-    .logo {
-      display: flex; align-items: center; gap: 10px;
-      font-size: 20px; font-weight: 700;
-    }
-    .status {
-      display: flex; align-items: center; gap: 8px;
-      font-size: 13px; color: var(--sub);
-      letter-spacing: 0.06em; text-transform: uppercase;
-    }
-    .dot {
-      width: 9px; height: 9px; border-radius: 50%;
-      background: var(--sub); transition: background 0.3s;
-    }
-    .dot.live { background: var(--live); animation: breathe 2s ease-in-out infinite; }
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #ffffff 40%, #79c0ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
 
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-    }
+        header p {
+            color: var(--text-sub);
+            font-size: 0.95rem;
+            margin-top: 6px;
+        }
 
-    .grid {
-      display: grid; 
-      grid-template-columns: 1.3fr 1fr;
-      gap: 20px; 
-      margin-bottom: 20px;
-    }
+        .main-container {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 20px;
+            width: 100%;
+            max-width: 1100px;
+        }
 
-    /* 카메라 카드 확대 */
-    .cam-card {
-      min-height: 480px;
-      aspect-ratio: 4/3;
-      display: flex; align-items: center; justify-content: center;
-      position: relative; overflow: hidden;
-      border-radius: 16px;
-    }
-    #cam-canvas {
-      width: 100%; height: 100%;
-      object-fit: cover; transform: scaleX(-1);
-      position: absolute; inset: 0;
-    }
-    #cam-video {
-      width: 100%; height: 100%;
-      object-fit: cover; transform: scaleX(-1);
-      display: none;
-    }
-    .cam-off {
-      font-size: 48px; color: var(--sub);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .cam-label {
-      position: absolute; bottom: 12px; left: 14px;
-      font-size: 12px; color: var(--sub); letter-spacing: 0.04em;
-      background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 6px;
-    }
-    .cam-card.detecting { border-color: var(--live); box-shadow: 0 0 15px rgba(82, 201, 160, 0.2); }
+        /* 왼쪽: 비디오 및 카메라 영역 */
+        .video-section {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
 
-    /* 번역 결과 카드 */
-    .result-card {
-      padding: 24px;
-      display: flex; flex-direction: column;
-      justify-content: space-between;
-      min-height: 480px;
-    }
-    .result-label {
-      font-size: 13px; font-weight: 600;
-      letter-spacing: 0.08em; text-transform: uppercase; color: var(--sub);
-    }
-    .result-word {
-      font-size: 4.5rem; font-weight: 800;
-      line-height: 1.1; letter-spacing: -0.02em;
-      color: var(--accent);
-      min-height: 5rem;
-    }
-    .result-ph { font-size: 18px; color: var(--sub); line-height: 1.6; }
-    .confidence {
-      font-size: 14px; color: var(--live);
-      letter-spacing: 0.04em; margin-top: 10px; font-weight: 600;
-    }
+        .video-card {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            background: #000;
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid var(--card-border);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+        }
 
-    /* 음성 자막 카드 */
-    .voice-card { padding: 18px 24px; margin-bottom: 20px; }
-    .voice-header {
-      display: flex; align-items: center;
-      justify-content: space-between; margin-bottom: 10px;
-    }
-    .voice-label {
-      font-size: 12px; font-weight: 600;
-      letter-spacing: 0.08em; text-transform: uppercase; color: var(--sub);
-    }
-    .live-tag {
-      display: none; align-items: center;
-      gap: 6px; font-size: 12px; color: var(--live);
-    }
-    .live-tag .ldot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--live); animation: breathe 1.5s ease-in-out infinite;
-    }
-    .voice-text { font-size: 17px; line-height: 1.6; color: var(--sub); min-height: 1.6em; }
-    .voice-text.active { color: var(--text); }
+        video { display: none; }
 
-    /* 컨트롤 바 */
-    .controls {
-      background: var(--surface2);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      display: flex; align-items: center;
-      justify-content: space-between; padding: 12px 20px;
-    }
-    .ctrl-group { display: flex; gap: 10px; align-items: center; }
-    .ctrl-btn {
-      background: var(--surface); border: 1px solid var(--line); cursor: pointer;
-      padding: 12px 18px; border-radius: 10px; color: var(--sub);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px; font-weight: 600; gap: 8px;
-      transition: all 0.2s;
-    }
-    .ctrl-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
-    .ctrl-btn.off { color: var(--danger); border-color: rgba(224, 96, 96, 0.3); }
-    .ctrl-btn.on  { color: var(--live); border-color: rgba(82, 201, 160, 0.3); }
+        canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
 
-    .connect-btn {
-      display: flex; align-items: center; gap: 8px;
-      background: var(--accent); color: #0D0F18;
-      border: none; border-radius: 10px;
-      padding: 12px 24px; font-size: 15px; font-weight: 700;
-      cursor: pointer; transition: opacity 0.15s;
-    }
-    .connect-btn:hover { opacity: 0.9; }
-    .connect-btn.connected { background: var(--live); color: #0D0F18; }
-    .connect-btn.disconnected { background: var(--danger); color: #fff; }
+        .status-badge {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            background: rgba(13, 17, 23, 0.8);
+            backdrop-filter: blur(8px);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--card-border);
+        }
 
-    @keyframes breathe {
-      0%, 100% { opacity: 0.3; }
-      50% { opacity: 1; }
-    }
-  </style>
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #f85149;
+        }
+
+        .dot.active {
+            background-color: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px 18px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            cursor: pointer;
+            background: var(--card-bg);
+            color: var(--text-main);
+            backdrop-filter: blur(10px);
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(48, 54, 61, 0.8);
+            transform: translateY(-2px);
+        }
+
+        button.primary {
+            background: linear-gradient(135deg, var(--accent-blue) 0%, #1f6feb 100%);
+            border: none;
+        }
+
+        /* 오른쪽: 양방향 번역 패널 */
+        .translation-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .panel-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--card-border);
+            border-radius: 18px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-sub);
+        }
+
+        .badge {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 6px;
+        }
+
+        .badge-blue {
+            background: rgba(47, 129, 247, 0.15);
+            color: #58a6ff;
+            border: 1px solid rgba(47, 129, 247, 0.3);
+        }
+
+        .badge-purple {
+            background: rgba(137, 87, 229, 0.15);
+            color: #bc8cff;
+            border: 1px solid rgba(137, 87, 229, 0.3);
+        }
+
+        /* 실시간 수어 번역 단어 표시 */
+        .current-word {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: #3fb950;
+            min-height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+            border-radius: 10px;
+            transition: width 0.2s ease-out;
+        }
+
+        /* 문장 완성 버퍼 */
+        .sentence-box {
+            min-height: 60px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 12px;
+            font-size: 1.05rem;
+            line-height: 1.4;
+            color: #e6edf3;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            word-break: break-all;
+        }
+
+        /* 음성인식 자막 박스 */
+        .stt-box {
+            min-height: 70px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 12px;
+            font-size: 1.05rem;
+            color: #bc8cff;
+            border: 1px dashed rgba(137, 87, 229, 0.4);
+            display: flex;
+            align-items: center;
+        }
+
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            color: var(--text-sub);
+            cursor: pointer;
+        }
+
+        @media (max-width: 850px) {
+            .main-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
-  <div class="app">
 
-    <div class="header">
-      <div class="logo">🤟 SignBridge 실시간 수어 통역</div>
-      <div class="status">
-        <span class="dot" id="s-dot"></span>
-        <span id="s-txt">대기 중</span>
-      </div>
-    </div>
+    <header>
+        <h1>🤟 SignBridge</h1>
+        <p>실시간 양방향 수어·음성 통역 웹 서비스 (Sign $\leftrightarrow$ Voice)</p>
+    </header>
 
-    <div class="grid">
-      <div class="card cam-card" id="cam-card">
-        <div class="cam-off" id="cam-off">📷</div>
-        <video id="cam-video" autoplay playsinline muted></video>
-        <canvas id="cam-canvas" style="display:none;"></canvas>
-        <span class="cam-label">웹캠 영상 (양손 인식)</span>
-      </div>
-
-      <div class="card result-card">
-        <span class="result-label">실시간 수어 번역 결과</span>
-        <div>
-          <p class="result-word" id="hero-word" style="display:none;"></p>
-          <p class="result-ph" id="hero-ph">카메라를 켜고 백엔드에 연결한 뒤<br>수어 동작을 진행해 주세요.</p>
-          <p class="confidence" id="conf-txt"></p>
+    <div class="main-container">
+        <!-- 왼쪽: 카메라 및 비디오 제어 -->
+        <div class="video-section">
+            <div class="video-card">
+                <video id="webcam" playsinline></video>
+                <canvas id="output-canvas" width="640" height="480"></canvas>
+                <div class="status-badge">
+                    <span class="dot" id="server-dot"></span>
+                    <span id="server-status">백엔드 대기 중</span>
+                </div>
+            </div>
+            <div class="button-group">
+                <button class="primary" onclick="startCamera()">📷 카메라 시작</button>
+                <button onclick="connectWebSocket()">🔌 백엔드 연결</button>
+                <button onclick="toggleSpeechRecognition()" id="btn-stt">🎤 청인 음성듣기 OFF</button>
+            </div>
         </div>
-        <div id="buf-row" style="display:flex; gap:6px; flex-wrap:wrap; min-height:24px;">
-          <span style="font-size:13px; color:var(--sub);">누적 단어 히스토리 준비</span>
+
+        <!-- 오른쪽: 양방향 번역 결과 패널 -->
+        <div class="translation-panel">
+            <!-- 1. 수어 -> 텍스트/음성 (농인 -> 청인) -->
+            <div class="panel-card">
+                <div class="card-header">
+                    <span class="card-title">수어 실시간 인식</span>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="tts-toggle" checked> TTS 자동 음성출력
+                    </label>
+                </div>
+                <div class="current-word" id="current-word">대기 중...</div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="confidence-bar"></div>
+                </div>
+                <div class="card-header" style="margin-top: 8px;">
+                    <span class="card-title">조합된 문장</span>
+                    <button style="flex:0; padding: 4px 10px; font-size: 0.75rem;" onclick="clearSentence()">초기화</button>
+                </div>
+                <div class="sentence-box" id="sentence-box">인식된 수어가 여기에 누적됩니다.</div>
+            </div>
+
+            <!-- 2. 음성 -> 자막 (청인 -> 농인) -->
+            <div class="panel-card">
+                <div class="card-header">
+                    <span class="card-title">청인 음성 자막 (STT)</span>
+                    <span class="badge badge-purple" id="stt-status">마이크 대기</span>
+                </div>
+                <div class="stt-box" id="stt-output">비장애인이 마이크로 말하면 실시간 자막으로 표시됩니다.</div>
+            </div>
         </div>
-      </div>
     </div>
 
-    <div class="card voice-card">
-      <div class="voice-header">
-        <span class="voice-label">상대방 음성 자막 (STT)</span>
-        <span class="live-tag" id="live-tag">
-          <span class="ldot"></span>듣는 중
-        </span>
-      </div>
-      <p class="voice-text" id="voice-txt">―</p>
-    </div>
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const currentWordEl = document.getElementById('current-word');
+        const confidenceBar = document.getElementById('confidence-bar');
+        const sentenceBox = document.getElementById('sentence-box');
+        const serverStatus = document.getElementById('server-status');
+        const serverDot = document.getElementById('server-dot');
+        const ttsToggle = document.getElementById('tts-toggle');
+        const sttOutput = document.getElementById('stt-output');
+        const sttStatus = document.getElementById('stt-status');
+        const btnStt = document.getElementById('btn-stt');
 
-    <div class="controls">
-      <div class="ctrl-group">
-        <button class="ctrl-btn off" id="btn-cam" onclick="toggleCam()">📷 카메라 켜기</button>
-        <button class="ctrl-btn on" id="btn-mic" onclick="toggleMic()">🎙️ 마이크 ON</button>
-      </div>
+        let websocket = null;
+        let camera = null;
+        let accumulatedSentence = [];
+        let lastRecognizedWord = "";
+        let lastRecognizedTime = 0;
+        let recognition = null;
+        let isSttListening = false;
 
-      <button class="connect-btn" id="btn-ws" onclick="toggleWS()">🔌 백엔드 연결</button>
+        // 1. WebSocket 연결
+        function connectWebSocket() {
+            if (websocket && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
+                return;
+            }
 
-      <div class="ctrl-group">
-        <button class="ctrl-btn on" id="btn-tts" onclick="toggleTts()">🔊 음성출력 ON</button>
-        <button class="ctrl-btn" id="btn-listen" onclick="toggleListen()">👂 음성인식 시작</button>
-      </div>
-    </div>
-  </div>
+            serverStatus.innerText = "연결 시도 중...";
+            serverDot.className = "dot";
 
-  <script>
-  var camOn = false;
-  var micOn = true;
-  var ttsOn = true;
-  var listening = false;
-  var wsConnected = false;
+            websocket = new WebSocket("ws://127.0.0.1:8000/ws");
 
-  var mediaStream = null;
-  var mpCamera = null;
-  var mpHands = null;
-  var ws = null;
-  var recognition = null;
-  var lastText = '';
+            websocket.onopen = () => {
+                serverStatus.innerText = "백엔드 연결됨";
+                serverDot.className = "dot active";
+            };
 
-  var WS_URL = 'ws://127.0.0.1:8000/ws/sign';
+            websocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.status === "success" && data.word) {
+                    handleSignResult(data.word, data.confidence);
+                }
+            };
 
-  function toggleWS() {
-    if (wsConnected) {
-      ws && ws.close();
-      return;
-    }
-    ws = new WebSocket(WS_URL);
+            websocket.onclose = () => {
+                serverStatus.innerText = "연결 끊김";
+                serverDot.className = "dot";
+            };
 
-    ws.onopen = function() {
-      wsConnected = true;
-      setStatus('백엔드 연결됨', true);
-      var btn = document.getElementById('btn-ws');
-      btn.textContent = '✅ 연결 완료';
-      btn.className = 'connect-btn connected';
-    };
-
-    ws.onmessage = function(e) {
-      var data = JSON.parse(e.data);
-      if (data.status === 'success' && data.text) {
-        showResult(data.text, data.confidence);
-      }
-    };
-
-    ws.onclose = function() {
-      wsConnected = false;
-      setStatus('연결 끊김', false);
-      var btn = document.getElementById('btn-ws');
-      btn.textContent = '🔌 백엔드 연결';
-      btn.className = 'connect-btn disconnected';
-    };
-
-    ws.onerror = function() {
-      setStatus('연결 오류', false);
-    };
-  }
-
-  function showResult(text, confidence) {
-    if (text === lastText) return;
-    lastText = text;
-
-    document.getElementById('hero-ph').style.display = 'none';
-    var hw = document.getElementById('hero-word');
-    hw.textContent = text;
-    hw.style.display = 'block';
-
-    if (confidence) {
-      document.getElementById('conf-txt').textContent =
-        '일치율: ' + Math.round(confidence * 100) + '%';
-    }
-
-    speakOut(text);
-  }
-
-  // 126차원(왼손 63 + 오른손 63) 플랫 배열 생성 함수
-  function extractLandmarks126(results) {
-    var lh = new Array(63).fill(0.0);
-    var rh = new Array(63).fill(0.0);
-
-    if (results.multiHandLandmarks && results.multiHandedness) {
-      for (var i = 0; i < results.multiHandLandmarks.length; i++) {
-        var classification = results.multiHandedness[i].label; // "Left" or "Right"
-        var landmarks = results.multiHandLandmarks[i];
-        var flatCoords = [];
-        for (var j = 0; j < landmarks.length; j++) {
-          flatCoords.push(landmarks[j].x, landmarks[j].y, landmarks[j].z);
+            websocket.onerror = () => {
+                serverStatus.innerText = "연결 실패";
+                serverDot.className = "dot";
+            };
         }
 
-        if (classification === 'Left') {
-          lh = flatCoords;
-        } else if (classification === 'Right') {
-          rh = flatCoords;
+        // 2. 수어 인식 결과 처리 및 끊어읽기(디바운싱) & TTS
+        function handleSignResult(word, confidence) {
+            currentWordEl.innerText = word;
+            confidenceBar.style.width = `${Math.min(confidence, 100)}%`;
+
+            const now = Date.now();
+            // 동일 단어 중복 방지 (최소 1.5초 간격 또는 새로운 단어일 때만 추가)
+            if (word !== lastRecognizedWord || (now - lastRecognizedTime > 1500)) {
+                lastRecognizedWord = word;
+                lastRecognizedTime = now;
+
+                accumulatedSentence.push(word);
+                sentenceBox.innerText = accumulatedSentence.join(" ");
+
+                // SpeechSynthesis TTS 음성 출력
+                if (ttsToggle.checked) {
+                    speakText(word);
+                }
+            }
         }
-      }
-    }
-    // [왼손(63), 오른손(63)] = 총 126차원 반환
-    return lh.concat(rh);
-  }
 
-  function initMediaPipe(videoEl, canvasEl) {
-    mpHands = new Hands({
-      locateFile: function(file) {
-        return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + file;
-      }
-    });
-
-    mpHands.setOptions({
-      maxNumHands: 2, // 양손 모두 인식
-      modelComplexity: 1,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.5,
-    });
-
-    mpHands.onResults(function(results) {
-      var ctx = canvasEl.getContext('2d');
-      canvasEl.width = videoEl.videoWidth;
-      canvasEl.height = videoEl.videoHeight;
-
-      ctx.save();
-      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
-      ctx.drawImage(results.image, 0, 0, canvasEl.width, canvasEl.height);
-
-      var camCard = document.getElementById('cam-card');
-
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        for (var i = 0; i < results.multiHandLandmarks.length; i++) {
-          var lm = results.multiHandLandmarks[i];
-          drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: '#7B8FFF', lineWidth: 3 });
-          drawLandmarks(ctx, lm, { color: '#52C9A0', lineWidth: 1, radius: 4 });
+        function speakText(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); // 이전 발화 중단
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'ko-KR';
+                utterance.rate = 1.0;
+                window.speechSynthesis.speak(utterance);
+            }
         }
-        camCard.classList.add('detecting');
-      } else {
-        camCard.classList.remove('detecting');
-      }
-      ctx.restore();
 
-      // 백엔드로 항상 126차원 1차원 float 배열 송신
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        var frame126 = extractLandmarks126(results);
-        ws.send(JSON.stringify({ landmarks: frame126 }));
-      }
-    });
+        function clearSentence() {
+            accumulatedSentence = [];
+            sentenceBox.innerText = "인식된 수어가 여기에 누적됩니다.";
+            lastRecognizedWord = "";
+        }
 
-    mpCamera = new Camera(videoEl, {
-      onFrame: async function() {
-        await mpHands.send({ image: videoEl });
-      },
-      width: 640,
-      height: 480,
-    });
+        // 3. Web Speech API (청인 음성 -> 자막 변환 STT)
+        function toggleSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("현재 브라우저에서는 Web Speech API를 지원하지 않습니다. Chrome 브라우저를 권장합니다.");
+                return;
+            }
 
-    mpCamera.start();
-  }
+            if (!recognition) {
+                recognition = new SpeechRecognition();
+                recognition.lang = 'ko-KR';
+                recognition.continuous = true;
+                recognition.interimResults = true;
 
-  function toggleCam() {
-    var btn = document.getElementById('btn-cam');
-    if (camOn) {
-      mpCamera && mpCamera.stop();
-      mediaStream && mediaStream.getTracks().forEach(function(t) { t.stop(); });
-      mediaStream = null;
-      camOn = false;
+                recognition.onstart = () => {
+                    isSttListening = true;
+                    btnStt.innerText = "🎤 청인 음성듣기 ON";
+                    btnStt.style.background = "#8957e5";
+                    sttStatus.innerText = "음성 청취 중...";
+                };
 
-      document.getElementById('cam-canvas').style.display = 'none';
-      document.getElementById('cam-off').style.display = 'flex';
-      btn.textContent = '📷 카메라 켜기';
-      btn.className = 'ctrl-btn off';
-      return;
-    }
+                recognition.onresult = (event) => {
+                    let transcript = "";
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        transcript += event.results[i][0].transcript;
+                    }
+                    sttOutput.innerText = transcript;
+                };
 
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-      .then(function(s) {
-        mediaStream = s;
-        var v = document.getElementById('cam-video');
-        var c = document.getElementById('cam-canvas');
-        v.srcObject = s;
-        v.onloadedmetadata = function() {
-          c.style.display = 'block';
-          document.getElementById('cam-off').style.display = 'none';
-          camOn = true;
-          btn.textContent = '📷 카메라 끄기';
-          btn.className = 'ctrl-btn on';
-          initMediaPipe(v, c);
-        };
-      })
-      .catch(function(err) {
-        console.error(err);
-        setStatus('카메라 권한 오류', false);
-      });
-  }
+                recognition.onerror = (e) => {
+                    console.error("STT 에러:", e);
+                };
 
-  function toggleMic() {
-    micOn = !micOn;
-    var btn = document.getElementById('btn-mic');
-    btn.textContent = micOn ? '🎙️ 마이크 ON' : '🔇 마이크 OFF';
-    btn.className = micOn ? 'ctrl-btn on' : 'ctrl-btn off';
-  }
+                recognition.onend = () => {
+                    if (isSttListening) recognition.start();
+                };
+            }
 
-  function toggleTts() {
-    ttsOn = !ttsOn;
-    var btn = document.getElementById('btn-tts');
-    btn.textContent = ttsOn ? '🔊 음성출력 ON' : '🔇 음성출력 OFF';
-    btn.className = ttsOn ? 'ctrl-btn on' : 'ctrl-btn off';
-  }
+            if (isSttListening) {
+                isSttListening = false;
+                recognition.stop();
+                btnStt.innerText = "🎤 청인 음성듣기 OFF";
+                btnStt.style.background = "";
+                sttStatus.innerText = "마이크 대기";
+            } else {
+                recognition.start();
+            }
+        }
 
-  function toggleListen() {
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      document.getElementById('voice-txt').textContent = '이 브라우저는 음성 인식을 지원하지 않습니다. (크롬 권장)';
-      return;
-    }
-    var btn = document.getElementById('btn-listen');
-    if (listening) {
-      recognition && recognition.stop();
-      listening = false;
-      document.getElementById('live-tag').style.display = 'none';
-      btn.textContent = '👂 음성인식 시작';
-      btn.className = 'ctrl-btn';
-      return;
-    }
-    recognition = new SR();
-    recognition.lang = 'ko-KR';
-    recognition.continuous = true;
-    recognition.interimResults = true;
+        // 4. MediaPipe Hands 파이프라인
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
 
-    recognition.onresult = function(e) {
-      var txt = '';
-      for (var i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
-      var el = document.getElementById('voice-txt');
-      el.textContent = txt || '―';
-      el.className = txt ? 'voice-text active' : 'voice-text';
-    };
-    recognition.onend = function() {
-      listening = false;
-      document.getElementById('live-tag').style.display = 'none';
-      btn.textContent = '👂 음성인식 시작';
-      btn.className = 'ctrl-btn';
-    };
-    recognition.start();
-    listening = true;
-    document.getElementById('live-tag').style.display = 'flex';
-    btn.textContent = '👂 인식 중...';
-    btn.className = 'ctrl-btn on';
-  }
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
 
-  function speakOut(text) {
-    if (!ttsOn || !window.speechSynthesis) return;
-    var u = new SpeechSynthesisUtterance(text);
-    u.lang = 'ko-KR';
-    window.speechSynthesis.speak(u);
-  }
+        hands.onResults((results) => {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-  function setStatus(label, active) {
-    document.getElementById('s-txt').textContent = label;
-    var dot = document.getElementById('s-dot');
-    dot.className = active ? 'dot live' : 'dot';
-  }
-  </script>
+            let lh = new Array(63).fill(0.0);
+            let rh = new Array(63).fill(0.0);
+
+            if (results.multiHandLandmarks && results.multiHandedness) {
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const landmarks = results.multiHandLandmarks[i];
+                    const label = results.multiHandedness[i].label;
+                    
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#2f81f7', lineWidth: 3});
+                    drawLandmarks(canvasCtx, landmarks, {color: '#2ea043', lineWidth: 1.5, radius: 3});
+
+                    const coords = [];
+                    for (let lm of landmarks) {
+                        coords.push(lm.x, lm.y, lm.z);
+                    }
+
+                    if (label === 'Left') {
+                        lh = coords;
+                    } else if (label === 'Right') {
+                        rh = coords;
+                    }
+                }
+            }
+            canvasCtx.restore();
+
+            const keypoints126 = lh.concat(rh);
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({ landmarks: keypoints126 }));
+            }
+        });
+
+        // 5. 카메라 시작
+        function startCamera() {
+            if (camera) return;
+
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({ image: videoElement });
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+        }
+    </script>
 </body>
 </html>
