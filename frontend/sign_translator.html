@@ -203,7 +203,7 @@ var ws = null, wsReady = false;
 var recognition = null;
 var lastText = '';
 
-var WS_URL = 'ws://127.0.0.1:8000/ws/sign';
+var WS_URL = 'ws://127.0.0.1:8000/ws';
 
 // ── WebSocket 자동 연결 (사용자에게 안 보임) ────
 function connectWS() {
@@ -212,7 +212,7 @@ function connectWS() {
     ws.onopen = function() { wsReady = true; };
     ws.onmessage = function(e) {
       var data = JSON.parse(e.data);
-      if (data.status === 'success' && data.text && data.text !== lastText) {
+      if (data.status === 'success' && data.word && data.text !== lastText) {
         lastText = data.text;
         showResult(data.text);
         speakOut(data.text);
