@@ -1,3 +1,10 @@
+<<<<<<< HEAD
+venv/
+__pycache__/
+*.pyc
+.vscode/
+MP_Data/
+=======
 # Node / React
 node_modules/
 .env
@@ -13,3 +20,4 @@ venv/
 # OS / 에디터
 .DS_Store
 .vscode/
+>>>>>>> c638d7f53f7fb480f52234fc4d80d216e59f0613
