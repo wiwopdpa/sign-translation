@@ -149,11 +149,25 @@ function connectWS() {
   ws.onmessage = (e) => {
     let data;
     try { data = JSON.parse(e.data); } catch { return; }
-    // 서버 응답 필드는 text 기준 (word를 쓰는 서버라면 여기를 바꾸세요)
-    if (data.status === 'success' && data.text && data.text !== lastText) {
-      lastText = data.text;
-      showResult(data.text);
-      speakOut(data.text);
+
+    const word = data.text || data.translation;
+    if (word) {
+      const KOR_MAP = {
+        'hello': '안녕하세요',
+        'thanks': '감사합니다',
+        'happy': '행복',
+        'sad': '슬픔',
+        'iloveyou': '사랑합니다'
+      };
+      const displayWord = KOR_MAP[word] || word;
+      const confText = data.confidence ? ` (${data.confidence}%)` : '';
+
+      showResult(displayWord + confText);
+
+      if (word !== lastText) {
+        lastText = word;
+        speakOut(displayWord);
+      }
     }
   };
   ws.onclose = () => {

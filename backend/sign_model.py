@@ -5,17 +5,16 @@ import tensorflow as tf
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "..", "model", "my_model.h5")
 
-# 방금 학습한 5개 AI-Hub 단어 라벨 목록
+# AI-Hub 5개 단어 라벨 목록
 DEFAULT_ACTIONS = ['hello', 'thanks', 'happy', 'sad', 'iloveyou']
 
 class SignLanguageModel:
-    def __init__(self, model_path=MODEL_PATH, threshold=0.3):
+    def __init__(self, model_path=MODEL_PATH, threshold=0.2):  # 임계값을 0.2(20%)로 설정
         print(f"[*] AI 모델 로딩 경로: {model_path}")
         self.model = tf.keras.models.load_model(model_path)
         self.threshold = threshold
         self.sequence = []
 
-        # 모델 실제 출력 클래스 수 자동 확인
         output_dim = self.model.output_shape[-1]
         print(f"[*] 모델 출력 클래스 수: {output_dim}개")
 
@@ -27,7 +26,7 @@ class SignLanguageModel:
             self.actions = DEFAULT_ACTIONS[:output_dim]
 
     def predict(self, landmarks):
-        # 126차원 프레임 누적 (최근 30프레임 유지)
+        # 126차원 프레임 버퍼 유지 (최근 30프레임)
         self.sequence.append(landmarks)
         self.sequence = self.sequence[-30:]
 
@@ -39,7 +38,6 @@ class SignLanguageModel:
             best_idx = int(np.argmax(res))
             confidence = float(res[best_idx])
             
-            # 인덱스 안전 참조
             if best_idx < len(self.actions):
                 predicted_word = self.actions[best_idx]
             else:
@@ -47,12 +45,13 @@ class SignLanguageModel:
 
             print(f"\n[추론 성공] 단어: {predicted_word} | 신뢰도: {confidence * 100:.1f}%")
 
+            # 20% 이상일 때 화면으로 전달
             if confidence >= self.threshold:
                 return predicted_word, confidence
 
         return None, 0.0
 
-# 싱글톤 인스턴스 생성
+# 인스턴스 생성
 sign_detector = SignLanguageModel()
 
 def predict_sign(landmarks):
