@@ -1,94 +1,128 @@
 import os
+import glob
 import json
 import numpy as np
 
-def parse_single_json(json_path):
-    """JSON 파일 하나에서 126차원(왼손 63 + 오른손 63) 키포인트를 추출합니다."""
-    with open(json_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    
-    people = data.get('people', {})
-    
-    # 3D 좌표 우선 사용, 없을 경우 2D 사용
-    left_raw = people.get('hand_left_keypoints_3d', [])
-    right_raw = people.get('hand_right_keypoints_3d', [])
+# 1. 경로 설정
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-    if not left_raw:
-        left_raw = people.get('hand_left_keypoints_2d', [])
-    if not right_raw:
-        right_raw = people.get('hand_right_keypoints_2d', [])
+# 압축 해제된 실제 폴더 경로 검색 (temp_data 아래 keypoint/01)
+SEARCH_PATTERNS = [
+    os.path.join(BASE_DIR, "temp_data", "**", "keypoint", "01"),
+    os.path.join(BASE_DIR, "temp_data", "*", "keypoint", "01"),
+    os.path.join(BASE_DIR, "temp_data", "keypoint", "01"),
+]
 
-    # 왼손 63개 (x, y, z)
-    lh = []
-    if left_raw and len(left_raw) >= 84:
-        for i in range(0, 84, 4):
-            lh.extend([left_raw[i], left_raw[i+1], left_raw[i+2]])
+DATA_DIR = None
+for p in SEARCH_PATTERNS:
+    matches = glob.glob(p, recursive=True)
+    if matches:
+        DATA_DIR = matches[0]
+        break
+
+if not DATA_DIR or not os.path.exists(DATA_DIR):
+    # 기본 경로 폴백
+    DATA_DIR = os.path.join(BASE_DIR, "temp_data", "WORD", "keypoint", "01")
+
+OUTPUT_DIR = os.path.join(BASE_DIR, "MP_Data")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+print(f"[*] AI-Hub 원본 데이터 경로: {DATA_DIR}")
+print(f"[*] 변환 결과 저장 경로: {OUTPUT_DIR}")
+
+# 2. 변환 대상 단어 설정 (예: 앞쪽 5개 단어 선택)
+# 폴더명 규칙: NIA_SL_WORD0001_SYN01_F -> 정면 카메라(_F) 영상 우선 활용
+TARGET_WORDS = {
+    "WORD0001": "hello",     # 단어 1
+    "WORD0003": "thanks",    # 단어 3
+    "WORD0004": "happy",     # 단어 4
+    "WORD0005": "sad",       # 단어 5
+    "WORD0006": "iloveyou"   # 단어 6
+}
+
+# 원본 비디오 해상도 (AI-Hub 표준: FHD 1920x1080)
+IMG_WIDTH = 1920.0
+IMG_HEIGHT = 1080.0
+SEQUENCE_LENGTH = 30  # 모델 학습 시퀀스 길이 (30 프레임)
+
+def parse_hand_points(raw_list):
+    """63개 원소 [x, y, c, x, y, c...] -> [x_norm, y_norm, c...] 63개 반환"""
+    if not raw_list or len(raw_list) < 63:
+        return np.zeros(63, dtype=np.float32)
+    
+    pts = np.array(raw_list, dtype=np.float32)
+    # x, y 정규화 (0.0 ~ 1.0)
+    pts[0::3] /= IMG_WIDTH
+    pts[1::3] /= IMG_HEIGHT
+    return pts[:63]
+
+def process_sequence_folder(folder_path):
+    """한 시퀀스 폴더 내의 json들을 읽어 (30, 126) 넘파이 배열 생성"""
+    json_files = sorted(glob.glob(os.path.join(folder_path, "*.json")))
+    if len(json_files) == 0:
+        return None
+
+    # 프레임 수가 부족하면 패딩, 많으면 30개로 균등 샘플링
+    if len(json_files) >= SEQUENCE_LENGTH:
+        indices = np.linspace(0, len(json_files) - 1, SEQUENCE_LENGTH, dtype=int)
+        selected_files = [json_files[i] for i in indices]
     else:
-        lh = [0.0] * 63
+        # 프레임 부족 시 마지막 프레임 복제 패딩
+        selected_files = json_files + [json_files[-1]] * (SEQUENCE_LENGTH - len(json_files))
 
-    # 오른손 63개 (x, y, z)
-    rh = []
-    if right_raw and len(right_raw) >= 84:
-        for i in range(0, 84, 4):
-            rh.extend([right_raw[i], right_raw[i+1], right_raw[i+2]])
-    else:
-        rh = [0.0] * 63
+    sequence_data = []
+    for jf in selected_files:
+        try:
+            with open(jf, "r", encoding="utf-8") as f:
+                content = json.load(f)
 
-    return np.array(lh + rh, dtype=np.float32)
+            people = content.get("people", {})
+            if isinstance(people, list):
+                people = people[0] if len(people) > 0 else {}
 
-def convert_single_folder(json_folder_path, action_name, sequence_idx, save_dir="MP_Data"):
-    """폴더 하나 안의 JSON 시퀀스를 30프레임 .npy로 변환하여 저장합니다."""
-    files = sorted([f for f in os.listdir(json_folder_path) if f.endswith('.json')])
-    total_frames = len(files)
+            lh_raw = people.get("hand_left_keypoints_2d", [])
+            rh_raw = people.get("hand_right_keypoints_2d", [])
 
-    if total_frames < 30:
-        print(f"⚠️ 프레임 부족 건너뜀 ({total_frames}개): {os.path.basename(json_folder_path)}")
-        return False
+            lh = parse_hand_points(lh_raw)
+            rh = parse_hand_points(rh_raw)
 
-    indices = np.linspace(0, total_frames - 1, 30, dtype=int)
-    sampled_files = [files[i] for i in indices]
+            # 왼손(63) + 오른손(63) = 126
+            frame_126 = np.concatenate([lh, rh])
+            sequence_data.append(frame_126)
+        except Exception:
+            sequence_data.append(np.zeros(126, dtype=np.float32))
 
-    target_dir = os.path.join(save_dir, action_name, str(sequence_idx))
-    os.makedirs(target_dir, exist_ok=True)
+    return np.array(sequence_data)  # shape: (30, 126)
 
-    for frame_idx, filename in enumerate(sampled_files):
-        full_path = os.path.join(json_folder_path, filename)
-        kp_126 = parse_single_json(full_path)
-        np.save(os.path.join(target_dir, f"{frame_idx}.npy"), kp_126)
+# 3. 변환 메인 루프
+print("\n[*] AI-Hub 데이터셋 변환을 시작합니다...")
 
-    print(f"✅ 변환 완료: [{action_name}] 시퀀스 {sequence_idx} ({os.path.basename(json_folder_path)})")
-    return True
-
-def batch_convert(root_dir, save_dir="MP_Data"):
-    """최상위 폴더 내의 모든 _F(정면) 폴더를 자동으로 찾아 일괄 변환합니다."""
-    folders = [f for f in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, f)) and f.endswith('_F')]
-    folders.sort()
-
-    if not folders:
-        print(f"⚠️ 지정한 폴더 내에 '_F'로 끝나는 폴더가 없습니다. 경로를 확인해 주세요: {root_dir}")
-        return
-
-    word_seq_counter = {}
-
-    for folder_name in folders:
-        # 폴더명에서 단어 ID 추출 (예: NIA_SL_WORD1501_REAL01_F -> word1501)
-        parts = folder_name.split('_')
-        word_label = parts[2].lower() if len(parts) >= 3 else folder_name.lower()
-
-        if word_label not in word_seq_counter:
-            word_seq_counter[word_label] = 0
-
-        folder_path = os.path.join(root_dir, folder_name)
-        seq_idx = word_seq_counter[word_label]
-
-        success = convert_single_folder(folder_path, word_label, seq_idx, save_dir)
-        if success:
-            word_seq_counter[word_label] += 1
-
-    print("\n🎉 모든 정면 데이터 변환 작업이 완료되었습니다!")
-
-if __name__ == "__main__":
-    # 다운로드 및 압축 해제된 실제 경로 적용 완료
-    ROOT_DATA_DIR = r"C:\Users\82102\Downloads\New_sample (1)\라벨링데이터\REAL\WORD\01_real_word_keypoint"
+for word_code, label_name in TARGET_WORDS.items():
+    print(f"\n>> 단어 처리 중: [{label_name}] (코드: {word_code})")
     
-    batch_convert(ROOT_DATA_DIR, save_dir="MP_Data")
+    # 해당 단어의 정면(_F) 및 기타 카메라 폴더들 수집
+    pattern = os.path.join(DATA_DIR, f"NIA_SL_{word_code}_*")
+    seq_folders = glob.glob(pattern)
+    
+    if not seq_folders:
+        print(f"   [!] 폴더를 찾지 못했습니다: {pattern}")
+        continue
+
+    seq_idx = 0
+    for s_folder in seq_folders:
+        seq_array = process_sequence_folder(s_folder)
+        if seq_array is None:
+            continue
+
+        target_dir = os.path.join(OUTPUT_DIR, label_name, str(seq_idx))
+        os.makedirs(target_dir, exist_ok=True)
+
+        for frame_num in range(SEQUENCE_LENGTH):
+            save_path = os.path.join(target_dir, f"{frame_num}.npy")
+            np.save(save_path, seq_array[frame_num])
+
+        seq_idx += 1
+
+    print(f"   [완료] 총 {seq_idx}개의 시퀀스 생성 완료 (위치: MP_Data/{label_name}/)")
+
+print("\n🎉 모든 데이터 변환이 성공적으로 완료되었습니다!")
