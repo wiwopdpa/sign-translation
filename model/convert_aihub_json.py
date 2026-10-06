@@ -1,86 +1,128 @@
 import os
-import glob
 import json
+import glob
 import numpy as np
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+RAW_DATA_PATH = os.path.join(CURRENT_DIR, "temp_data")
+DATA_PATH = os.path.join(CURRENT_DIR, "MP_Data")
+os.makedirs(DATA_PATH, exist_ok=True)
 
-# temp_data 내의 모든 keypoint 폴더 탐색 (01, 02 등 하위 전체)
-DATA_ROOT = os.path.join(BASE_DIR, "temp_data")
-OUTPUT_DIR = os.path.join(BASE_DIR, "MP_Data")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-TARGET_WORDS = {
-    "WORD0001": "hello",
-    "WORD0003": "thanks",
-    "WORD0004": "happy",
-    "WORD0005": "sad",
-    "WORD0006": "iloveyou"
+ACTIONS = np.array(['hello', 'thanks', 'happy', 'sad', 'iloveyou'])
+WORD_MAP = {
+    'WORD0001': 'hello',
+    'WORD0003': 'thanks',
+    'WORD0004': 'happy',
+    'WORD0005': 'sad',
+    'WORD0006': 'iloveyou'
 }
-
-IMG_WIDTH = 1920.0
-IMG_HEIGHT = 1080.0
 SEQUENCE_LENGTH = 30
 
-def parse_hand_points(raw_list):
-    if not raw_list or len(raw_list) < 63:
+def normalize_hand(points):
+    """21개 (x, y, z) 랜드마크를 손목(0번) 기준 상대 좌표로 정규화 (총 63차원)"""
+    arr = np.array(points, dtype=np.float32)
+    if arr.size == 0 or np.all(arr == 0):
         return np.zeros(63, dtype=np.float32)
-    pts = np.array(raw_list, dtype=np.float32)
-    pts[0::3] /= IMG_WIDTH
-    pts[1::3] /= IMG_HEIGHT
-    return pts[:63]
-
-def process_sequence_folder(folder_path):
-    json_files = sorted(glob.glob(os.path.join(folder_path, "*.json")))
-    if len(json_files) == 0:
-        return None
-
-    if len(json_files) >= SEQUENCE_LENGTH:
-        indices = np.linspace(0, len(json_files) - 1, SEQUENCE_LENGTH, dtype=int)
-        selected_files = [json_files[i] for i in indices]
-    else:
-        selected_files = json_files + [json_files[-1]] * (SEQUENCE_LENGTH - len(json_files))
-
-    sequence_data = []
-    for jf in selected_files:
-        try:
-            with open(jf, "r", encoding="utf-8") as f:
-                content = json.load(f)
-            people = content.get("people", {})
-            if isinstance(people, list):
-                people = people[0] if len(people) > 0 else {}
-            lh = parse_hand_points(people.get("hand_left_keypoints_2d", []))
-            rh = parse_hand_points(people.get("hand_right_keypoints_2d", []))
-            sequence_data.append(np.concatenate([lh, rh]))
-        except Exception:
-            sequence_data.append(np.zeros(126, dtype=np.float32))
-
-    return np.array(sequence_data)
-
-print("[*] 확장 데이터 변환 시작...")
-
-for word_code, label_name in TARGET_WORDS.items():
-    # 모든 하위 폴더에서 해당 단어 코드가 들어간 시퀀스 폴더 전부 검색
-    pattern = os.path.join(DATA_ROOT, "**", f"NIA_SL_{word_code}_*")
-    seq_folders = [f for f in glob.glob(pattern, recursive=True) if os.path.isdir(f)]
     
-    print(f"\n>> [{label_name}] 검색된 폴더 수: {len(seq_folders)}개")
+    try:
+        arr = arr.reshape(21, 3)
+    except Exception:
+        return np.zeros(63, dtype=np.float32)
+
+    wrist = arr[0].copy()
+    rel = arr - wrist
     
-    seq_idx = 0
-    for s_folder in seq_folders:
-        seq_array = process_sequence_folder(s_folder)
-        if seq_array is None:
-            continue
+    max_val = np.max(np.abs(rel))
+    if max_val > 1e-5:
+        rel = rel / max_val
+        
+    return rel.flatten()
 
-        target_dir = os.path.join(OUTPUT_DIR, label_name, str(seq_idx))
-        os.makedirs(target_dir, exist_ok=True)
+def find_hand_landmarks(data):
+    """
+    JSON 구조(루트 키, people 리스트, people 딕셔너리 등)에 상관없이 
+    왼손/오른손 랜드마크 배열을 안전하게 추출
+    """
+    candidate_dicts = []
+    
+    # 1) data 자체가 딕셔너리인 경우 후보에 추가
+    if isinstance(data, dict):
+        candidate_dicts.append(data)
+        
+        # people 필드 탐색
+        people = data.get("people")
+        if isinstance(people, list):
+            for item in people:
+                if isinstance(item, dict):
+                    candidate_dicts.append(item)
+        elif isinstance(people, dict):
+            for item in people.values():
+                if isinstance(item, dict):
+                    candidate_dicts.append(item)
 
-        for frame_num in range(SEQUENCE_LENGTH):
-            save_path = os.path.join(target_dir, f"{frame_num}.npy")
-            np.save(save_path, seq_array[frame_num])
+    lh, rh = [], []
+    left_keys = ["left_hand_pts", "hand_left_pts", "left_hand_landmarks", "left_hand"]
+    right_keys = ["right_hand_pts", "hand_right_pts", "right_hand_landmarks", "right_hand"]
 
-        seq_idx += 1
+    for d in candidate_dicts:
+        if not lh:
+            for k in left_keys:
+                if k in d and isinstance(d[k], list) and len(d[k]) >= 63:
+                    lh = d[k][:63]
+                    break
+        if not rh:
+            for k in right_keys:
+                if k in d and isinstance(d[k], list) and len(d[k]) >= 63:
+                    rh = d[k][:63]
+                    break
+        if lh and rh:
+            break
 
-    print(f"   -> [{label_name}] 총 {seq_idx}개 시퀀스 변환 완료")
+    return lh, rh
 
-print("\n🎉 모든 데이터 증강 변환 완료!")
+def process_aihub_data():
+    print("=" * 60)
+    print("AI-Hub 수어 데이터 정규화 및 NPY 변환 시작")
+    print("=" * 60)
+
+    for word_code, action in WORD_MAP.items():
+        action_dir = os.path.join(DATA_PATH, action)
+        os.makedirs(action_dir, exist_ok=True)
+        
+        search_pattern = os.path.join(RAW_DATA_PATH, "**", f"*{word_code}*")
+        matched_folders = [p for p in glob.glob(search_pattern, recursive=True) if os.path.isdir(p)]
+        
+        if not matched_folders:
+            matched_folders = [p for p in glob.glob(os.path.join(RAW_DATA_PATH, f"*{word_code}*")) if os.path.isdir(p)]
+            
+        print(f"\n[단어: {action} ({word_code})] 발견된 폴더: {len(matched_folders)}개")
+        seq_idx = 0
+
+        for folder in matched_folders:
+            json_files = sorted(glob.glob(os.path.join(folder, "*.json")))
+            if len(json_files) == 0:
+                continue
+
+            indices = np.linspace(0, len(json_files) - 1, SEQUENCE_LENGTH, dtype=int)
+            sequence_data = []
+
+            for idx in indices:
+                with open(json_files[idx], 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                lh, rh = find_hand_landmarks(data)
+
+                lh_norm = normalize_hand(lh)
+                rh_norm = normalize_hand(rh)
+                combined = np.concatenate([lh_norm, rh_norm])
+                sequence_data.append(combined)
+
+            save_folder = os.path.join(action_dir, str(seq_idx))
+            os.makedirs(save_folder, exist_ok=True)
+            np.save(os.path.join(save_folder, "0.npy"), np.array(sequence_data, dtype=np.float32))
+            seq_idx += 1
+
+        print(f" -> [{action}] 총 {seq_idx}개 시퀀스 변환 완료")
+
+if __name__ == "__main__":
+    process_aihub_data()
