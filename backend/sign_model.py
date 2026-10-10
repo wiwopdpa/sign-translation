@@ -75,7 +75,7 @@ def predict_sign(landmarks_126):
         print(f"[확률 분포] {probs_str}")
 
         # 신뢰도가 최소 40% 이상일 때만 결과 반환 (노이즈 방지)
-        if confidence >= 0.20:
+        if confidence >= 0.65:
             return word, confidence
 
     return None, 0.0

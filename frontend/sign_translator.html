@@ -4,118 +4,153 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SignBridge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
 <style>
 :root{
-  --bg:#0D0F18; --surface:#151824; --line:rgba(255,255,255,.08);
-  --text:#EDEAF4; --sub:#8B90A8; --accent:#7B8FFF; --live:#52C9A0; --danger:#E06060;
+  --bg:#EEF0F1;
+  --panel:#FAFBFB;
+  --ink:#16202A;
+  --sub:#68737D;
+  --line:#CBD1D6;
+  --accent:#0B6B6B;     /* 짙은 청록 */
+  --signal:#F2B632;     /* 손 표시에만 쓰는 노랑 */
+  --cam:#10171E;
+  --danger:#C9453D;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  background:var(--bg);color:var(--text);min-height:100vh;
-  display:flex;justify-content:center;padding:1.25rem;
+  font-family:'Noto Sans KR',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg);color:var(--ink);min-height:100vh;
+  display:flex;justify-content:center;padding:1.5rem;
+  -webkit-font-smoothing:antialiased;
 }
-.app{width:100%;max-width:480px}
-.header{display:flex;align-items:center;margin-bottom:1.25rem}
-.logo{font-size:18px;font-weight:700}
+.app{width:100%;max-width:520px}
 
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
-
-.layout{display:grid;grid-template-columns:1fr;gap:12px}
-.side{display:flex;flex-direction:column;gap:12px}
-
-.cam-card{
-  aspect-ratio:4/3;position:relative;overflow:hidden;
-  display:flex;align-items:center;justify-content:center;
-  transition:border-color .2s;
+/* 헤더: 로고 타일 없이 글자만 */
+.header{
+  display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  padding-bottom:14px;margin-bottom:18px;border-bottom:1px solid var(--line);
 }
-.cam-card.detecting{border-color:var(--live)}
+.title{font-size:22px;font-weight:900;letter-spacing:-.03em}
+.title small{font-size:14px;font-weight:400;color:var(--sub);letter-spacing:0;margin-left:10px}
+.conn{font-size:13px;color:var(--sub);display:flex;align-items:center;gap:6px}
+.conn::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--danger)}
+.conn.online::before{background:var(--accent)}
+
+.layout{display:grid;grid-template-columns:1fr;gap:18px}
+
+/* 카메라 + 도구줄을 하나의 덩어리로 */
+.stage{border:1px solid var(--ink);border-radius:6px;overflow:hidden;background:var(--cam)}
+.cam{aspect-ratio:4/3;position:relative;display:flex;align-items:center;justify-content:center}
+.cam::after{ /* 인식 상태를 테두리 안쪽 선으로 표시 */
+  content:'';position:absolute;inset:0;border:3px solid transparent;pointer-events:none;transition:border-color .2s;
+}
+.cam.detecting::after{border-color:var(--signal)}
 #cam-canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:none}
 #cam-video{display:none}
-.cam-placeholder{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--sub);font-size:14px;text-align:center;padding:1rem}
-.cam-placeholder span{font-size:32px}
-
-.result-card{padding:16px;display:flex;flex-direction:column;gap:12px;min-height:130px}
-.label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--sub)}
-.result-word{font-size:2.8rem;font-weight:700;line-height:1.1;letter-spacing:-.03em;word-break:keep-all}
-.result-ph{font-size:14px;color:var(--sub);line-height:1.5}
-
-.voice-card{padding:16px;flex:1}
-.voice-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.rec-dot{width:7px;height:7px;border-radius:50%;background:var(--danger);animation:blink 1.2s ease-in-out infinite;display:none}
-@keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
-.voice-text{font-size:16px;line-height:1.6;color:var(--sub);min-height:1.6em}
-.voice-text.active{color:var(--text)}
-
-.controls{
-  margin-top:12px;display:flex;justify-content:space-around;padding:8px;
-  background:var(--surface);border:1px solid var(--line);border-radius:14px;
+.cam-placeholder{color:#9AA6B1;font-size:15px;text-align:center;padding:1rem;line-height:1.6}
+.cam-hint{
+  position:absolute;left:12px;bottom:10px;font-size:13px;color:#fff;display:none;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);
 }
+.cam.on .cam-hint{display:block}
+
+.controls{display:grid;grid-template-columns:repeat(3,1fr);background:var(--panel)}
 .ctrl-btn{
-  background:none;border:none;color:inherit;cursor:pointer;padding:10px 16px;border-radius:10px;
-  display:flex;flex-direction:column;align-items:center;gap:4px;transition:background .15s;
+  background:none;border:0;border-left:1px solid var(--line);color:var(--ink);cursor:pointer;
+  padding:13px 8px;font-family:inherit;font-size:14px;font-weight:500;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  transition:background .15s,color .15s;
 }
-.ctrl-btn:hover{background:rgba(255,255,255,.06)}
-.ctrl-btn:focus-visible{outline:2px solid var(--accent)}
-.ctrl-icon{font-size:22px}
-.ctrl-label{font-size:11px;color:var(--sub)}
-.ctrl-btn[aria-pressed="false"] .ctrl-icon{filter:grayscale(1) opacity(.4)}
+.ctrl-btn:first-child{border-left:0}
+.ctrl-btn:hover{background:#EDF0F1}
+.ctrl-btn:focus-visible{outline:3px solid var(--accent);outline-offset:-3px}
+.ctrl-btn svg{width:18px;height:18px;flex:none}
+.ctrl-btn[aria-pressed="true"]{background:var(--accent);color:#fff}
+.ctrl-btn[aria-pressed="true"]:hover{background:#095A5A}
+.ctrl-btn .off{display:none}
+.ctrl-btn[data-tts="off"] .on{display:none}
+.ctrl-btn[data-tts="off"] .off{display:block}
+
+/* 오른쪽: 카드 두 장 대신 한 패널 안에서 선으로 구분 */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column}
+.sec{padding:20px 22px}
+.sec + .sec{border-top:1px solid var(--line);flex:1}
+.label{font-size:13px;font-weight:500;color:var(--sub);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.result-word{font-size:18px;font-weight:500;line-height:1.65;word-break:keep-all}
+.result-conf{display:block;margin-top:8px;font-size:14px;color:var(--accent);font-weight:500}
+.result-ph{font-size:15px;color:var(--sub);line-height:1.6}
+.voice-text{font-size:18px;line-height:1.65;color:#8D979F;min-height:1.65em;word-break:keep-all}
+.voice-text.active{color:var(--ink)}
+.rec{font-size:12px;color:var(--danger);display:none;align-items:center;gap:6px}
+.rec::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--danger);animation:blink 1.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
 
 .toast{
-  position:fixed;left:50%;bottom:1.25rem;transform:translateX(-50%);
-  background:var(--surface);border:1px solid var(--line);color:var(--text);
-  padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;
+  position:fixed;left:50%;bottom:1.5rem;transform:translateX(-50%);
+  background:var(--ink);color:#fff;padding:10px 16px;border-radius:6px;font-size:14px;
+  opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center;
 }
 .toast.show{opacity:1}
 
 @media (min-width:900px){
-  .app{max-width:1100px}
-  .layout{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);align-items:stretch}
-  .result-word{font-size:3.4rem}
+  body{padding:2rem 2.5rem}
+  .app{max-width:1180px}
+  .layout{grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);align-items:stretch;gap:24px}
+  .sec{padding:26px 28px}
+  .result-word,.voice-text{font-size:20px}
 }
-@media (prefers-reduced-motion:reduce){.rec-dot{animation:none}}
+@media (prefers-reduced-motion:reduce){.rec::before{animation:none}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="header"><div class="logo">🤟 SignBridge</div></div>
+  <header class="header">
+    <h1 class="title">SignBridge<small>수어 ↔ 음성 실시간 통역</small></h1>
+    <div class="conn" id="conn" role="status"><span id="conn-txt">서버 연결 중</span></div>
+  </header>
 
   <div class="layout">
-    <div class="card cam-card" id="cam-card">
-      <div class="cam-placeholder" id="cam-ph"><span>📷</span><p>카메라 켜기</p></div>
-      <video id="cam-video" autoplay playsinline muted></video>
-      <canvas id="cam-canvas"></canvas>
+    <div class="stage">
+      <div class="cam" id="cam-card">
+        <div class="cam-placeholder" id="cam-ph">카메라를 켜면<br>수어 인식이 시작돼요</div>
+        <video id="cam-video" autoplay playsinline muted></video>
+        <canvas id="cam-canvas"></canvas>
+        <div class="cam-hint" id="cam-hint">손을 화면 안에 보여주세요</div>
+      </div>
+      <div class="controls">
+        <button class="ctrl-btn" id="btn-cam" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L17 6h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          카메라
+        </button>
+        <button class="ctrl-btn" id="btn-tts" aria-pressed="true" data-tts="on">
+          <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+          <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9.5l4 5M21 9.5l-4 5"/></svg>
+          음성 출력
+        </button>
+        <button class="ctrl-btn" id="btn-listen" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+          음성 인식
+        </button>
+      </div>
     </div>
 
-    <div class="side">
-      <div class="card result-card" aria-live="polite">
-        <span class="label">번역 결과</span>
+    <div class="panel">
+      <section class="sec" aria-live="polite">
+        <div class="label">수어 번역</div>
         <p class="result-word" id="result-word" hidden></p>
-        <p class="result-ph" id="result-ph">수어를 인식하면<br>여기에 표시돼요</p>
-      </div>
-      <div class="card voice-card">
-        <div class="voice-header">
-          <span class="label">상대방 음성 자막</span>
-          <span class="rec-dot" id="rec-dot"></span>
-        </div>
-        <p class="voice-text" id="voice-txt" aria-live="polite">―</p>
-      </div>
+        <p class="result-ph" id="result-ph">인식된 수어가 여기에 글자로 나와요</p>
+      </section>
+      <section class="sec">
+        <div class="label">상대방 말 <span class="rec" id="rec-dot">듣는 중</span></div>
+        <p class="voice-text" id="voice-txt" aria-live="polite">음성 인식을 켜면 상대방의 말이 여기에 나와요</p>
+      </section>
     </div>
-  </div>
-
-  <div class="controls">
-    <button class="ctrl-btn" id="btn-cam" aria-pressed="false" aria-label="카메라">
-      <span class="ctrl-icon">📷</span><span class="ctrl-label">카메라</span>
-    </button>
-    <button class="ctrl-btn" id="btn-tts" aria-pressed="true" aria-label="음성 출력">
-      <span class="ctrl-icon">🔊</span><span class="ctrl-label">음성출력</span>
-    </button>
-    <button class="ctrl-btn" id="btn-listen" aria-pressed="false" aria-label="음성 인식">
-      <span class="ctrl-icon">👂</span><span class="ctrl-label">음성인식</span>
-    </button>
   </div>
 </div>
 <div class="toast" id="toast" role="status"></div>
@@ -127,6 +162,8 @@ const SEND_INTERVAL_MS = 80;     // 약 12fps로 전송 제한
 const MAX_BUFFERED = 64 * 1024;  // 서버가 느리면 프레임 건너뜀
 // 입력 영상을 좌우반전하지 않으므로 MediaPipe의 Left/Right가 실제와 반대 → 교정
 const SWAP_HANDEDNESS = true;
+const VOICE_PLACEHOLDER = '음성 인식을 켜면 상대방의 말이 여기에 나와요';
+const CAM_PLACEHOLDER = '카메라를 켜면<br>수어 인식이 시작돼요';
 
 // ── 상태 ───────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -141,11 +178,15 @@ function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), 2500);
 }
+function setConn(online) {
+  $('conn').classList.toggle('online', online);
+  $('conn-txt').textContent = online ? '서버 연결됨' : '서버 연결 중';
+}
 
 // ── WebSocket (지수 백오프 재연결) ──────────────
 function connectWS() {
   ws = new WebSocket(WS_URL);
-  ws.onopen = () => { wsRetry = 0; };
+  ws.onopen = () => { wsRetry = 0; setConn(true); };
   ws.onmessage = (e) => {
     let data;
     try { data = JSON.parse(e.data); } catch { return; }
@@ -160,9 +201,7 @@ function connectWS() {
         'iloveyou': '사랑합니다'
       };
       const displayWord = KOR_MAP[word] || word;
-      const confText = data.confidence ? ` (${data.confidence}%)` : '';
-
-      showResult(displayWord + confText);
+      showResult(displayWord, data.confidence);
 
       if (word !== lastText) {
         lastText = word;
@@ -171,16 +210,24 @@ function connectWS() {
     }
   };
   ws.onclose = () => {
+    setConn(false);
     const delay = Math.min(3000 * 2 ** wsRetry++, 30000);
     setTimeout(connectWS, delay);
   };
   ws.onerror = () => ws.close();
 }
 
-function showResult(text) {
+function showResult(text, confidence) {
   $('result-ph').hidden = true;
   const w = $('result-word');
-  w.textContent = text; w.hidden = false;
+  w.textContent = text;
+  if (confidence) {
+    const c = document.createElement('span');
+    c.className = 'result-conf';
+    c.textContent = `정확도 ${confidence}%`;
+    w.appendChild(c);
+  }
+  w.hidden = false;
 }
 
 // ── MediaPipe ──────────────────────────────────
@@ -203,6 +250,7 @@ async function startCam() {
 
     $('cam-ph').style.display = 'none';
     $('cam-canvas').style.display = 'block';
+    $('cam-card').classList.add('on');
 
     const hands = getHands();
     mpCamera = new Camera(video, {
@@ -219,7 +267,7 @@ async function startCam() {
       NotFoundError: '사용 가능한 카메라가 없어요',
       NotReadableError: '다른 앱이 카메라를 사용 중이에요',
     };
-    $('cam-ph').innerHTML = `<span>🚫</span><p>${msgs[err.name] || '카메라를 시작하지 못했어요'}</p>`;
+    $('cam-ph').textContent = msgs[err.name] || '카메라를 시작하지 못했어요';
   } finally {
     state.starting = false;
   }
@@ -231,9 +279,9 @@ function stopCam() {
   if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
   $('cam-video').srcObject = null;
   $('cam-canvas').style.display = 'none';
-  $('cam-card').classList.remove('detecting');
-  $('cam-ph').style.display = 'flex';
-  $('cam-ph').innerHTML = '<span>📷</span><p>카메라 켜기</p>';
+  $('cam-card').classList.remove('detecting', 'on');
+  $('cam-ph').style.display = 'block';
+  $('cam-ph').innerHTML = CAM_PLACEHOLDER;
   setPressed('btn-cam', false);
   lastText = '';
 }
@@ -261,10 +309,11 @@ function onHandResults(results) {
       let label = results.multiHandedness[i].label;
       if (SWAP_HANDEDNESS) label = label === 'Left' ? 'Right' : 'Left';
       if (label === 'Left') left = lm; else right = lm;
-      drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: '#7B8FFF', lineWidth: 2 });
-      drawLandmarks(ctx, lm, { color: '#52C9A0', lineWidth: 1, radius: 3 });
+      drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: '#F2B632', lineWidth: 3 });
+      drawLandmarks(ctx, lm, { color: '#10171E', fillColor: '#FFFFFF', lineWidth: 2, radius: 4 });
     });
     card.classList.add('detecting');
+    $('cam-hint').textContent = '손 인식 중';
 
     // 왼손 21개 + 오른손 21개 = 42개의 {x,y,z} (없는 손은 0으로 채움)
     const combined = toXYZ(left || EMPTY_HAND).concat(toXYZ(right || EMPTY_HAND));
@@ -276,6 +325,7 @@ function onHandResults(results) {
     }
   } else {
     card.classList.remove('detecting');
+    $('cam-hint').textContent = '손을 화면 안에 보여주세요';
     lastText = '';
   }
   ctx.restore();
@@ -304,7 +354,7 @@ function startListen() {
     let txt = '';
     for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
     const el = $('voice-txt');
-    el.textContent = txt || '―';
+    el.textContent = txt || VOICE_PLACEHOLDER;
     el.className = txt ? 'voice-text active' : 'voice-text';
   };
   recognition.onerror = (e) => {
@@ -320,7 +370,7 @@ function startListen() {
   };
   recognition.start();
   state.listening = true;
-  $('rec-dot').style.display = 'block';
+  $('rec-dot').style.display = 'flex';
   setPressed('btn-listen', true);
 }
 
@@ -334,7 +384,7 @@ $('btn-cam').addEventListener('click', () => (state.cam ? stopCam() : startCam()
 $('btn-tts').addEventListener('click', () => {
   state.tts = !state.tts;
   if (!state.tts && window.speechSynthesis) window.speechSynthesis.cancel();
-  $('btn-tts').querySelector('.ctrl-icon').textContent = state.tts ? '🔊' : '🔇';
+  $('btn-tts').dataset.tts = state.tts ? 'on' : 'off';
   setPressed('btn-tts', state.tts);
 });
 $('btn-listen').addEventListener('click', () => (state.listening ? stopListen() : startListen()));
